@@ -1,8 +1,12 @@
-AUTO VIDEO AI V5.5
-Novidade principal: imagens estáticas recebem movimento cinematográfico contínuo no PREVIEW (zoom, pan, push/pull, deriva e micro-rotação), sincronizado com o tempo de cada cena.
+AUTO VIDEO AI V5.5 — MOVIMENTO CINEMATOGRÁFICO
 
-A montagem variável continua real: cada cena é calculada entre 2 e 10 segundos conforme os campos configurados.
+Base: V5.4 estável.
+Preservado: narração, música, legendas/Whisper, timeline variável 2–10s e Pattern Break.
+Novo: movimento calculado em tempo real no preview para imagens e vídeos, com zoom, pan, deriva e combinações, controlado pela duração real da cena.
 
-IMPORTANTE: é animação cinematográfica/2.5D no navegador. Não é geração de novos frames por IA como um modelo image-to-video.
-
-Arquivos: index.html, style.css, media.js, timeline.js, app.js.
+Arquivos:
+index.html
+style.css
+app.js
+media.js
+timeline.js

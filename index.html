@@ -9,7 +9,7 @@
 <body>
   <header class="topbar">
     <div>
-      <h1>AUTO VIDEO AI <span>V5</span></h1>
+      <h1>AUTO VIDEO AI <span>V5.5</span></h1>
       <p>Editor automático com mudança inteligente de padrão</p>
     </div>
     <div class="top-actions">
@@ -118,6 +118,27 @@
           <input id="patternBreak" type="checkbox" checked>
           Ativar Pattern Break 2.0
         </label>
+      <section class="panel motion-panel">
+        <h2>🎥 Movimento Cinematográfico V5.5</h2>
+        <label>Estilo de movimento
+          <select id="motionMode">
+            <option value="cinematic">Cinemático automático</option>
+            <option value="dynamic">Dinâmico</option>
+            <option value="subtle">Suave</option>
+            <option value="zoom">Zoom</option>
+            <option value="pan">Pan</option>
+          </select>
+        </label>
+        <label>Intensidade
+          <input id="motionIntensity" type="range" min="0" max="100" value="55">
+          <span id="motionIntensityValue" class="file-info">55%</span>
+        </label>
+        <label class="check">
+          <input id="motionEnabled" type="checkbox" checked>
+          Animar imagens automaticamente
+        </label>
+        <div class="interval-note">As imagens não ficam paradas: o movimento é calculado continuamente durante cada cena e muda de padrão entre as cenas.</div>
+      </section>
       </section>
     </aside>
 
@@ -129,7 +150,7 @@
         </div>
         <div id="preview" class="preview ratio-16-9">
           <div class="preview-placeholder">
-            <strong>AUTO VIDEO AI V5</strong>
+            <strong>AUTO VIDEO AI V5.5</strong>
             <span>Adicione sua mídia e clique em Montagem Automática</span>
           </div>
         </div>

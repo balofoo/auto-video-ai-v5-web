@@ -28,6 +28,11 @@
   const seekBar = $("seekBar");
   const currentTime = $("currentTime");
   const totalTime = $("totalTime");
+  const motionMode = $("motionMode");
+  const motionIntensity = $("motionIntensity");
+  const motionEnabled = $("motionEnabled");
+  const motionIntensityValue = $("motionIntensityValue");
+  let motionFrame = null;
 
   let scenes = [];
   let duration = 60;
@@ -435,43 +440,80 @@
     preview.appendChild(wrap);
   }
 
-  // V5.5: movimento cinematográfico nas imagens, sem alterar o sistema de áudio da V5.4.
-  function applyCinematicMotion(scene, media, progress = 0) {
-    if (!media || scene.mediaType !== "image") return;
+  function motionTransform(scene, progress) {
+    if (!motionEnabled.checked) return "translate3d(0,0,0) scale(1) rotate(0deg)";
+    const intensity = Math.max(0, Math.min(1, Number(motionIntensity.value || 55) / 100));
+    const mode = motionMode.value || "cinematic";
     const t = Math.max(0, Math.min(1, progress));
-    const type = scene.motion || scene.breakType || "zoom-in";
-    const amount = 0.06 + (Math.abs((scene.motionSeed || 0.55)) * 0.06);
-    const eased = t < 0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
-    let scale = 1.02 + amount * eased, x = 0, y = 0, rot = 0;
-    if (type.includes("zoom-out") || type.includes("pull")) scale = 1.10 - amount * eased;
-    if (type.includes("left")) x = 4 - 8*eased;
-    else if (type.includes("right")) x = -4 + 8*eased;
-    else if (type.includes("up")) y = 4 - 8*eased;
-    else if (type.includes("down")) y = -4 + 8*eased;
-    if (type.includes("pan") || type.includes("drift")) scale = Math.max(scale,1.045);
-    if (type === "zoom-pan") { x = 5 - 10*eased; scale = 1.03 + 0.08*eased; }
-    rot = Math.sin(eased*Math.PI) * 0.35;
-    media.style.transform = `translate3d(${x}%,${y}%,0) scale(${scale}) rotate(${rot}deg)`;
+    const smooth = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2;
+    const strength = 1 + intensity;
+    let scale = 1.02, x = 0, y = 0, rot = 0;
+
+    const kind = scene.motionPattern || scene.breakType || "zoom-in";
+    if (mode === "zoom") {
+      scale = 1.02 + 0.09 * intensity * smooth;
+      x = -1.5 * intensity * smooth;
+      y = -0.8 * intensity * smooth;
+    } else if (mode === "pan") {
+      scale = 1.06 + 0.025 * intensity;
+      x = (t - 0.5) * 10 * intensity;
+      y = Math.sin(t * Math.PI) * 1.5 * intensity;
+    } else if (mode === "subtle") {
+      scale = 1.015 + 0.035 * intensity;
+      x = Math.sin(t * Math.PI * 2) * 2.2 * intensity;
+      y = Math.cos(t * Math.PI * 2) * 1.2 * intensity;
+      rot = Math.sin(t * Math.PI * 2) * 0.18 * intensity;
+    } else if (kind === "pan-left") {
+      scale = 1.06 + 0.025 * intensity; x = (0.5 - t) * 9 * intensity; y = Math.sin(t*Math.PI)*1.2*intensity;
+    } else if (kind === "pan-right") {
+      scale = 1.06 + 0.025 * intensity; x = (t - 0.5) * 9 * intensity; y = -Math.sin(t*Math.PI)*1.2*intensity;
+    } else if (kind === "pan-up") {
+      scale = 1.06 + 0.025 * intensity; y = (0.5 - t) * 8 * intensity; x = Math.sin(t*Math.PI)*1.2*intensity;
+    } else if (kind === "pan-down") {
+      scale = 1.06 + 0.025 * intensity; y = (t - 0.5) * 8 * intensity; x = -Math.sin(t*Math.PI)*1.2*intensity;
+    } else if (kind === "zoom-out") {
+      scale = 1.11 - 0.09 * intensity * smooth; x = (t-0.5)*2.5*intensity; y = (0.5-t)*1.5*intensity;
+    } else if (kind === "zoom-pan") {
+      scale = 1.02 + 0.10 * intensity * smooth; x = (t-0.5)*7*intensity; y = (0.5-t)*4*intensity;
+      rot = Math.sin(t*Math.PI) * 0.15 * intensity;
+    } else {
+      // Default cinematográfico: aproximação + pequena deriva.
+      scale = 1.02 + 0.09 * intensity * smooth;
+      x = Math.sin(t * Math.PI) * 2.8 * intensity;
+      y = (t - 0.5) * -2.2 * intensity;
+      rot = Math.sin(t * Math.PI) * 0.12 * intensity;
+    }
+    return `translate3d(${x.toFixed(3)}%,${y.toFixed(3)}%,0) scale(${scale.toFixed(4)}) rotate(${rot.toFixed(3)}deg)`;
+  }
+
+  function animateCurrentScene() {
+    if (!scenes.length || !playing) return;
+    const scene = scenes[currentSceneIndex];
+    const media = preview.querySelector(".scene-media");
+    if (scene && media) {
+      const progress = scene.duration > 0 ? (elapsed - scene.start) / scene.duration : 0;
+      media.style.transform = motionTransform(scene, progress);
+      media.style.animation = "none";
+    }
+    motionFrame = requestAnimationFrame(animateCurrentScene);
   }
 
   function showScene(index) {
     if (!scenes.length || index < 0 || index >= scenes.length) return;
     const scene = scenes[index];
     preview.innerHTML = "";
-
     preview.classList.remove("effect-zoom-in", "effect-zoom-out", "effect-crossfade", "effect-pan-left", "effect-pan-right", "effect-pan-up", "effect-pan-down", "effect-zoom-pan", "effect-cut");
     preview.classList.add(`effect-${scene.breakType}`);
     preview.style.setProperty("--scene-duration", `${Math.max(2, scene.duration)}s`);
 
     if (scene.mediaType === "image") {
-      scene.motionSeed = (scene.motionSeed ?? ((scene.id.length * 37) % 100) / 100);
       const img = document.createElement("img");
       img.src = scene.mediaUrl;
       img.alt = scene.name;
-      img.className = "scene-media animated-media";
-      img.style.transition = "transform 0.12s linear";
+      img.className = "scene-media animated-media cinematic-motion";
+      img.style.animation = "none";
+      img.style.transform = motionTransform(scene, scene.duration ? (elapsed-scene.start)/scene.duration : 0);
       preview.appendChild(img);
-      applyCinematicMotion(scene, img, 0);
     } else {
       const video = document.createElement("video");
       video.src = scene.mediaUrl;
@@ -479,13 +521,15 @@
       video.autoplay = true;
       video.loop = true;
       video.playsInline = true;
-      video.className = "scene-media animated-media";
+      video.className = "scene-media animated-media cinematic-motion";
+      video.style.animation = "none";
+      video.style.transform = motionTransform(scene, scene.duration ? (elapsed-scene.start)/scene.duration : 0);
       preview.appendChild(video);
       video.play().catch(() => {});
     }
-
-    previewStatus.textContent = `${scene.name} • ${scene.breakType} • ${scene.duration.toFixed(1)}s`;
+    previewStatus.textContent = `${scene.name} • ${scene.breakType} • ${scene.duration.toFixed(1)}s • movimento cinematográfico`;
     renderCaption(elapsed);
+    if (playing) { cancelAnimationFrame(motionFrame); motionFrame = requestAnimationFrame(animateCurrentScene); }
   }
 
   function findSceneAt(time) {
@@ -520,8 +564,6 @@
       currentSceneIndex = idx;
       showScene(idx);
     } else {
-      const media = preview.querySelector(".animated-media");
-      if (media && scenes[idx].mediaType === "image") applyCinematicMotion(scenes[idx], media, (elapsed - scenes[idx].start) / scenes[idx].duration);
       renderCaption(elapsed);
     }
 
@@ -541,6 +583,8 @@
     if (musicPlayer) musicPlayer.play().catch(() => {});
     clearInterval(timer);
     timer = setInterval(tick, 100);
+    cancelAnimationFrame(motionFrame);
+    motionFrame = requestAnimationFrame(animateCurrentScene);
   }
 
   function pause() {
@@ -548,6 +592,7 @@
     clearInterval(timer);
     if (narrationPlayer) narrationPlayer.pause();
     if (musicPlayer) musicPlayer.pause();
+    cancelAnimationFrame(motionFrame);
     $("playBtn").textContent = "▶";
   }
 
@@ -567,11 +612,7 @@
     currentSceneIndex = Math.max(0, findSceneAt(elapsed));
     currentTime.textContent = fmt(elapsed);
     syncAudio();
-    if (scenes.length) {
-      showScene(currentSceneIndex);
-      const media = preview.querySelector(".animated-media");
-      if (media && scenes[currentSceneIndex].mediaType === "image") applyCinematicMotion(scenes[currentSceneIndex], media, (elapsed - scenes[currentSceneIndex].start) / scenes[currentSceneIndex].duration);
-    }
+    if (scenes.length) showScene(currentSceneIndex);
   }
 
   async function autoEdit() {
@@ -623,7 +664,7 @@
   function saveProject() {
     const project = {
       app: "AUTO VIDEO AI V5",
-      version: "V5.5.1",
+      version: "V5.4",
       format: formatSelect.value,
       duration,
       patternBreak: patternBreak.checked,
@@ -662,6 +703,10 @@
   imageInput.addEventListener("change", handleImages);
   videoInput.addEventListener("change", handleVideos);
   musicInput.addEventListener("change", handleMusic);
+  if (motionIntensity) motionIntensity.addEventListener("input", () => { motionIntensityValue.textContent = `${motionIntensity.value}%`; });
+  if (motionMode) motionMode.addEventListener("change", () => { if (scenes.length) showScene(currentSceneIndex); });
+  if (motionEnabled) motionEnabled.addEventListener("change", () => { if (scenes.length) showScene(currentSceneIndex); });
+
   formatSelect.addEventListener("change", updateFormat);
   autoEditBtn.addEventListener("click", autoEdit);
   saveProjectBtn.addEventListener("click", saveProject);

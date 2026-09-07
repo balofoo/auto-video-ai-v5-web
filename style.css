@@ -260,10 +260,12 @@ textarea { width:100%; box-sizing:border-box; resize:vertical; background:#0c121
 #transcribeInfo { font-size:10px; line-height:1.4; color:var(--muted); }
 
 
-/* V5.5.1 — movimento cinematográfico por cena */
-.animated-media {
+/* V5.5 — movimento cinematográfico calculado em tempo real */
+.cinematic-motion {
   will-change: transform;
-  transform-origin: 50% 50%;
+  transform-origin: center center;
   backface-visibility: hidden;
+  perspective: 1000px;
 }
-.preview .scene-media { width:100%; height:100%; object-fit:cover; }
+.motion-panel input[type="range"] { width: 100%; accent-color: var(--accent); }
+.motion-panel .file-info { display:block; margin-top:4px; }
