@@ -38,6 +38,7 @@
   let narrationPlayer = null;
   let musicPlayer = null;
   let captions = [];
+  let motionFrame = null;
 
   function toast(msg) {
     const el = $("toast");
@@ -435,35 +436,93 @@
     preview.appendChild(wrap);
   }
 
+  // V5.5: câmera 2.5D real no preview. Áudio, música e legendas permanecem V5.4.
+  function motionPlan(index) {
+    const plans = [
+      {name:"zoom-in", a:[0,0,1.00,0], b:[0,-1,1.12,0]},
+      {name:"pan-right", a:[-4,0,1.08,0], b:[4,0,1.08,0]},
+      {name:"zoom-out", a:[2,1,1.12,0], b:[-1,0,1.00,0]},
+      {name:"pan-left", a:[4,0,1.08,0], b:[-4,0,1.08,0]},
+      {name:"pan-down", a:[0,-4,1.08,0], b:[0,4,1.08,0]},
+      {name:"pan-up", a:[0,4,1.08,0], b:[0,-4,1.08,0]},
+      {name:"diagonal", a:[-3,3,1.03,-0.6], b:[3,-3,1.12,0.6]},
+      {name:"diagonal-reverse", a:[3,-3,1.12,0.6], b:[-3,3,1.03,-0.6]}
+    ];
+    return plans[index % plans.length];
+  }
+
+  function applyImageMotion(progress) {
+    const scene = scenes[currentSceneIndex];
+    const img = preview.querySelector("img.scene-media");
+    if (!scene || scene.mediaType !== "image" || !img) return;
+    const m = motionPlan(currentSceneIndex);
+    const p = Math.max(0, Math.min(1, Number(progress) || 0));
+    const e = p < 0.5 ? 4*p*p*p : 1 - Math.pow(-2*p + 2, 3)/2;
+    const x = m.a[0] + (m.b[0]-m.a[0])*e;
+    const y = m.a[1] + (m.b[1]-m.a[1])*e;
+    const s = m.a[2] + (m.b[2]-m.a[2])*e;
+    const r = m.a[3] + (m.b[3]-m.a[3])*e;
+    img.style.transform = `translate3d(${x}%,${y}%,0) scale(${s}) rotate(${r}deg)`;
+    img.style.transformOrigin = "50% 50%";
+    img.style.willChange = "transform";
+  }
+
+  function stopImageMotion() {
+    if (motionFrame) cancelAnimationFrame(motionFrame);
+    motionFrame = null;
+  }
+
+  function startImageMotion() {
+    stopImageMotion();
+    const loop = () => {
+      if (!playing) return;
+      const scene = scenes[currentSceneIndex];
+      if (scene && scene.mediaType === "image") {
+        applyImageMotion((elapsed-scene.start)/Math.max(0.001,scene.duration));
+      }
+      motionFrame = requestAnimationFrame(loop);
+    };
+    if (scenes[currentSceneIndex]?.mediaType === "image") motionFrame=requestAnimationFrame(loop);
+  }
+
   function showScene(index) {
     if (!scenes.length || index < 0 || index >= scenes.length) return;
+    stopImageMotion();
     const scene = scenes[index];
     preview.innerHTML = "";
-
-    preview.classList.remove("effect-zoom-in", "effect-zoom-out", "effect-crossfade", "effect-pan-left", "effect-pan-right", "effect-pan-up", "effect-pan-down", "effect-zoom-pan", "effect-cut");
-    preview.classList.add(`effect-${scene.breakType}`);
+    preview.classList.remove("effect-zoom-in","effect-zoom-out","effect-crossfade","effect-pan-left","effect-pan-right","effect-pan-up","effect-pan-down","effect-zoom-pan","effect-cut");
     preview.style.setProperty("--scene-duration", `${Math.max(2, scene.duration)}s`);
 
     if (scene.mediaType === "image") {
-      const img = document.createElement("img");
-      img.src = scene.mediaUrl;
-      img.alt = scene.name;
-      img.className = "scene-media animated-media";
+      // Imagem: movimento é aplicado por JavaScript frame a frame, sem depender das animações CSS.
+      const img=document.createElement("img");
+      img.src=scene.mediaUrl;
+      img.alt=scene.name;
+      img.className="scene-media";
+      img.style.width="100%";
+      img.style.height="100%";
+      img.style.objectFit="cover";
+      img.style.willChange="transform";
+      img.style.transformOrigin="50% 50%";
       preview.appendChild(img);
+      applyImageMotion((elapsed-scene.start)/Math.max(0.001,scene.duration));
     } else {
-      const video = document.createElement("video");
-      video.src = scene.mediaUrl;
-      video.muted = true;
-      video.autoplay = true;
-      video.loop = true;
-      video.playsInline = true;
-      video.className = "scene-media animated-media";
+      preview.classList.add(`effect-${scene.breakType}`);
+      const video=document.createElement("video");
+      video.src=scene.mediaUrl;
+      video.muted=true;
+      video.autoplay=true;
+      video.loop=true;
+      video.playsInline=true;
+      video.className="scene-media animated-media";
       preview.appendChild(video);
-      video.play().catch(() => {});
+      video.play().catch(()=>{});
     }
 
-    previewStatus.textContent = `${scene.name} • ${scene.breakType} • ${scene.duration.toFixed(1)}s`;
+    const move=scene.mediaType === "image" ? motionPlan(index).name : scene.breakType;
+    previewStatus.textContent=`${scene.name} • ${scene.breakType} • ${scene.duration.toFixed(1)}s • movimento: ${move}`;
     renderCaption(elapsed);
+    if (playing) startImageMotion();
   }
 
   function findSceneAt(time) {
@@ -499,6 +558,7 @@
       showScene(idx);
     } else {
       renderCaption(elapsed);
+      if (scenes[idx]?.mediaType === "image") applyImageMotion((elapsed-scenes[idx].start)/Math.max(0.001,scenes[idx].duration));
     }
 
     seekBar.value = duration ? (elapsed / duration) * 100 : 0;
@@ -517,11 +577,13 @@
     if (musicPlayer) musicPlayer.play().catch(() => {});
     clearInterval(timer);
     timer = setInterval(tick, 100);
+    startImageMotion();
   }
 
   function pause() {
     playing = false;
     clearInterval(timer);
+    stopImageMotion();
     if (narrationPlayer) narrationPlayer.pause();
     if (musicPlayer) musicPlayer.pause();
     $("playBtn").textContent = "▶";
