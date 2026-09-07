@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AUTO VIDEO AI V5</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>AUTO VIDEO AI <span>V5</span></h1>
+      <p>Editor automático com mudança inteligente de padrão</p>
+    </div>
+    <div class="top-actions">
+      <button id="autoEditBtn" class="primary">⚡ Montagem Automática</button>
+      <button id="saveProjectBtn">💾 Salvar Projeto</button>
+    </div>
+  </header>
+
+  <main class="app">
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>🎙️ Narração</h2>
+        <label class="upload">
+          <input id="audioInput" type="file" accept="audio/*">
+          <span>Adicionar áudio</span>
+        </label>
+        <div id="audioInfo" class="file-info">Nenhum áudio selecionado</div>
+      </section>
+
+      <section class="panel">
+        <h2>🖼️ Imagens</h2>
+        <label class="upload">
+          <input id="imageInput" type="file" accept="image/*" multiple>
+          <span>Adicionar imagens</span>
+        </label>
+        <div id="imageList" class="media-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>🎬 Vídeos</h2>
+        <label class="upload">
+          <input id="videoInput" type="file" accept="video/*" multiple>
+          <span>Adicionar vídeos</span>
+        </label>
+        <div id="videoList" class="media-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>🎵 Música</h2>
+        <label class="upload">
+          <input id="musicInput" type="file" accept="audio/*">
+          <span>Adicionar música</span>
+        </label>
+        <div id="musicInfo" class="file-info">Nenhuma música selecionada</div>
+      </section>
+
+      <section class="panel">
+        <h2>⚙️ Montagem</h2>
+        <label>Formato
+          <select id="formatSelect">
+            <option value="16:9">16:9 YouTube</option>
+            <option value="9:16">9:16 Shorts</option>
+            <option value="1:1">1:1</option>
+          </select>
+        </label>
+
+        <label>Intervalo de mudança
+          <div class="range-row">
+            <input id="minChange" type="number" min="2" max="10" value="2">
+            <span>até</span>
+            <input id="maxChange" type="number" min="2" max="10" value="10">
+            <span>seg.</span>
+          </div>
+        </label>
+
+        <label>Modo de mudança
+          <select id="changeMode">
+            <option value="smart">Inteligente + variável</option>
+            <option value="random">Variável</option>
+            <option value="alternate">Alternar imagem/vídeo</option>
+          </select>
+        </label>
+
+        <label class="check">
+          <input id="avoidRepeat" type="checkbox" checked>
+          Evitar mídia repetida em sequência
+        </label>
+
+        <label class="check">
+          <input id="patternBreak" type="checkbox" checked>
+          Ativar Pattern Break 2.0
+        </label>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div class="preview-panel">
+        <div class="preview-head">
+          <h2>PREVIEW</h2>
+          <span id="previewStatus">Pronto</span>
+        </div>
+        <div id="preview" class="preview ratio-16-9">
+          <div class="preview-placeholder">
+            <strong>AUTO VIDEO AI V5</strong>
+            <span>Adicione sua mídia e clique em Montagem Automática</span>
+          </div>
+        </div>
+        <div class="transport">
+          <button id="playBtn">▶</button>
+          <button id="pauseBtn">⏸</button>
+          <button id="stopBtn">⏹</button>
+          <span id="currentTime">00:00</span>
+          <input id="seekBar" type="range" min="0" max="100" value="0">
+          <span id="totalTime">00:00</span>
+        </div>
+      </div>
+
+      <div class="analysis-panel">
+        <div class="metric">
+          <span>Variedade visual</span>
+          <b id="visualScore">0</b>
+        </div>
+        <div class="metric">
+          <span>Pattern Break</span>
+          <b id="breakScore">0</b>
+        </div>
+        <div class="metric">
+          <span>Repetição</span>
+          <b id="repeatScore">0</b>
+        </div>
+        <div class="metric">
+          <span>Retention Score</span>
+          <b id="retentionScore">0</b>
+        </div>
+      </div>
+
+      <div class="timeline-panel">
+        <div class="timeline-head">
+          <h2>🎬 TIMELINE AUTOMÁTICA</h2>
+          <span id="timelineInfo">0 cenas</span>
+        </div>
+        <div class="timeline-scale" id="timelineScale"></div>
+        <div id="timeline" class="timeline"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="media.js"></script>
+  <script src="timeline.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
