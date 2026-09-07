@@ -15,6 +15,13 @@
   const changeMode = $("changeMode");
   const avoidRepeat = $("avoidRepeat");
   const patternBreak = $("patternBreak");
+  const captionsEnabled = $("captionsEnabled");
+  const captionStyle = $("captionStyle");
+  const transcriptInput = $("transcriptInput");
+  const generateCaptionsBtn = $("generateCaptionsBtn");
+  const captionInfo = $("captionInfo");
+  const autoTranscribeBtn = $("autoTranscribeBtn");
+  const transcribeInfo = $("transcribeInfo");
   const timeline = $("timeline");
   const timelineInfo = $("timelineInfo");
   const previewStatus = $("previewStatus");
@@ -28,8 +35,9 @@
   let timer = null;
   let currentSceneIndex = 0;
   let elapsed = 0;
-  let motionFrame = null;
-  let mediaElement = null;
+  let narrationPlayer = null;
+  let musicPlayer = null;
+  let captions = [];
 
   function toast(msg) {
     const el = $("toast");
@@ -69,12 +77,64 @@
     });
   }
 
+  // V5.2: detecta pausas/respirações da narração no próprio navegador.
+  // Não envia o áudio para nenhum servidor.
+  async function detectNarrationRhythm(file) {
+    if (!file) return [];
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const buffer = await ctx.decodeAudioData(await file.arrayBuffer());
+      const channel = buffer.getChannelData(0);
+      const sampleRate = buffer.sampleRate;
+      const frameSize = Math.max(256, Math.floor(sampleRate * 0.04));
+      const hop = Math.max(128, Math.floor(frameSize * 0.5));
+      const rms = [];
+      for (let i = 0; i + frameSize < channel.length; i += hop) {
+        let sum = 0;
+        for (let j = 0; j < frameSize; j++) sum += channel[i + j] * channel[i + j];
+        rms.push(Math.sqrt(sum / frameSize));
+      }
+      const sorted = [...rms].sort((a,b)=>a-b);
+      const floor = sorted[Math.floor(sorted.length * 0.18)] || 0.002;
+      const threshold = Math.max(0.006, floor * 2.2);
+      const pauses = [];
+      let quietStart = null;
+      const minQuietFrames = Math.max(3, Math.floor(0.32 * sampleRate / hop));
+      let quietFrames = 0;
+      for (let i = 0; i < rms.length; i++) {
+        if (rms[i] < threshold) {
+          if (quietStart === null) quietStart = i;
+          quietFrames++;
+        } else {
+          if (quietStart !== null && quietFrames >= minQuietFrames) {
+            const t = ((quietStart + Math.floor(quietFrames / 2)) * hop) / sampleRate;
+            if (t > 1.0 && t < duration - 0.6) pauses.push(Number(t.toFixed(2)));
+          }
+          quietStart = null;
+          quietFrames = 0;
+        }
+      }
+      await ctx.close();
+      // Remove pausas muito próximas para não gerar cortes nervosos.
+      return pauses.filter((t,i,a) => i === 0 || t - a[i-1] >= 1.5).slice(0, 120);
+    } catch (e) {
+      console.warn('V5.2: análise de ritmo indisponível', e);
+      return [];
+    }
+  }
+
   async function handleAudio() {
     const file = audioInput.files[0];
     if (!file) return;
     MediaEngine.setAudio(file);
+    if (narrationPlayer) narrationPlayer.pause();
+    narrationPlayer = new Audio(MediaEngine.state.audio.url);
+    narrationPlayer.preload = "auto";
+    narrationPlayer.volume = 1;
     duration = await detectAudioDuration(file);
     totalTime.textContent = fmt(duration);
+    previewStatus.textContent = "Analisando ritmo da narração...";
+    window.av5NarrationPauses = await detectNarrationRhythm(file);
     renderMediaLists();
     toast(`Narração carregada: ${fmt(duration)}`);
   }
@@ -95,6 +155,11 @@
     const file = musicInput.files[0];
     if (!file) return;
     MediaEngine.setMusic(file);
+    if (musicPlayer) musicPlayer.pause();
+    musicPlayer = new Audio(MediaEngine.state.music.url);
+    musicPlayer.preload = "auto";
+    musicPlayer.loop = true;
+    musicPlayer.volume = 0.22;
     renderMediaLists();
     toast("Música adicionada");
   }
@@ -175,97 +240,251 @@
     $("retentionScore").textContent = scores.retention;
   }
 
-  function getMotionPlan(index) {
-    const plans = [
-      ["zoom-in", 0,0,1.00,0, 2,-1,1.13,.10],
-      ["pan-right", -5,0,1.08,0, 5,0,1.08,0],
-      ["zoom-out", 3,1,1.13,.08, -1,0,1.00,0],
-      ["pan-left", 5,0,1.08,0, -5,0,1.08,0],
-      ["push-diagonal", -3,3,1.03,-.08, 3,-3,1.12,.08],
-      ["pull-diagonal", 3,-2,1.12,.08, -3,2,1.02,-.08],
-      ["pan-down", 0,-4,1.08,0, 0,4,1.08,0],
-      ["pan-up", 0,4,1.08,0, 0,-4,1.08,0]
-    ];
-    const q = plans[index % plans.length];
-    return {name:q[0], from:{x:q[1],y:q[2],s:q[3],r:q[4]}, to:{x:q[5],y:q[6],s:q[7],r:q[8]}};
+  function cleanCaptionText(text) {
+    return text.replace(/\s+/g, " ").trim();
   }
 
-  function applyMotion(progress) {
-    if (!mediaElement || !scenes.length) return;
-    const scene = scenes[currentSceneIndex];
-    if (!scene || scene.mediaType !== "image") return;
-    const m = getMotionPlan(currentSceneIndex);
-    const p = Math.max(0, Math.min(1, progress));
-    const e = p < .5 ? 4*p*p*p : 1-Math.pow(-2*p+2,3)/2;
-    const x=m.from.x+(m.to.x-m.from.x)*e;
-    const y=m.from.y+(m.to.y-m.from.y)*e;
-    const s=m.from.s+(m.to.s-m.from.s)*e;
-    const r=m.from.r+(m.to.r-m.from.r)*e;
-    mediaElement.style.transform=`translate3d(${x}%,${y}%,0) scale(${s}) rotate(${r}deg)`;
-  }
+  // V5.3.1: sincronização baseada no áudio.
+  // A transcrição é dividida em blocos curtos e o tempo de cada bloco é
+  // calculado pelo número de palavras, usando as pausas reais detectadas
+  // na narração como pontos de ajuste. Assim a legenda acompanha a fala,
+  // em vez de simplesmente seguir as trocas de imagem.
+  function buildCaptionsFromTranscript() {
+    const text = cleanCaptionText(transcriptInput.value || "");
+    if (!text) {
+      captions = [];
+      captionInfo.textContent = "Cole a transcrição para gerar legendas sincronizadas.";
+      return false;
+    }
 
-  function stopMotion() {
-    if (motionFrame) cancelAnimationFrame(motionFrame);
-    motionFrame = null;
-  }
-
-  function startMotion() {
-    stopMotion();
-    const animate=()=>{
-      if(!playing || !mediaElement) return;
-      if(scenes[currentSceneIndex]?.mediaType==="image"){
-        applyMotion((elapsed-scenes[currentSceneIndex].start)/scenes[currentSceneIndex].duration);
+    const sentences = text.match(/[^.!?…]+[.!?…]?/g)?.map(cleanCaptionText).filter(Boolean) || [text];
+    const blocks = [];
+    sentences.forEach(sentence => {
+      const words = sentence.split(/\s+/).filter(Boolean);
+      // Legendas curtas facilitam leitura e acompanham melhor a fala.
+      for (let i = 0; i < words.length; i += 8) {
+        blocks.push(words.slice(i, i + 8).join(" "));
       }
-      motionFrame=requestAnimationFrame(animate);
-    };
-    motionFrame=requestAnimationFrame(animate);
+    });
+    if (!blocks.length || duration <= 0) return false;
+
+    const pauses = (window.av5NarrationPauses || [])
+      .filter(t => Number.isFinite(t) && t > 0.1 && t < duration - 0.1)
+      .sort((a,b) => a-b);
+
+    const totalWords = blocks.reduce((sum, b) => sum + b.split(/\s+/).length, 0);
+    const targetWordsPerSecond = totalWords / duration;
+    let cursor = 0;
+    const result = [];
+
+    blocks.forEach((block, i) => {
+      const wordCount = block.split(/\s+/).length;
+      const rawLength = Math.max(1.0, wordCount / Math.max(0.8, targetWordsPerSecond));
+      let end = Math.min(duration, cursor + rawLength);
+
+      // Se houver uma pausa próxima, encaixa a saída da legenda nela.
+      const nearbyPause = pauses.find(p => p > cursor + 0.45 && p <= Math.min(duration, cursor + rawLength + 0.9));
+      if (nearbyPause) end = nearbyPause;
+
+      // Evita blocos excessivamente longos ou curtos.
+      end = Math.min(duration, Math.max(cursor + 0.9, end));
+      if (i === blocks.length - 1) end = duration;
+
+      result.push({
+        text: block,
+        start: Number(cursor.toFixed(3)),
+        end: Number(end.toFixed(3))
+      });
+      cursor = end;
+    });
+
+    // Distribuição de erro: garante cobertura até o final sem sobreposição.
+    if (result.length) {
+      const scale = duration / Math.max(duration, result[result.length - 1].end);
+      if (scale !== 1) {
+        result.forEach(c => {
+          c.start = Number((c.start * scale).toFixed(3));
+          c.end = Number((c.end * scale).toFixed(3));
+        });
+      }
+      result[result.length - 1].end = Number(duration.toFixed(3));
+    }
+
+    captions = result.filter(c => c.end > c.start + 0.05);
+    captionInfo.textContent = `${captions.length} legenda(s) sincronizada(s) com a narração`;
+    return captions.length > 0;
+  }
+
+  let whisperPipeline = null;
+
+  async function getWhisperPipeline() {
+    if (whisperPipeline) return whisperPipeline;
+    transcribeInfo.textContent = "Carregando o Whisper no navegador... na primeira vez pode demorar.";
+    autoTranscribeBtn.disabled = true;
+    try {
+      const mod = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2/+esm");
+      if (mod.env) {
+        mod.env.allowRemoteModels = true;
+        mod.env.allowLocalModels = false;
+      }
+      whisperPipeline = await mod.pipeline("automatic-speech-recognition", "onnx-community/whisper-tiny", {
+        device: "wasm",
+        dtype: "q8"
+      });
+      transcribeInfo.textContent = "Whisper carregado. A transcrição será processada localmente no navegador.";
+      return whisperPipeline;
+    } finally {
+      autoTranscribeBtn.disabled = false;
+    }
+  }
+
+  async function decodeMono16k(file) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    const decoded = await ctx.decodeAudioData(await file.arrayBuffer());
+    const targetRate = 16000;
+    const targetLength = Math.ceil(decoded.duration * targetRate);
+    const offline = new OfflineAudioContext(1, targetLength, targetRate);
+    const source = offline.createBufferSource();
+    source.buffer = decoded;
+    source.connect(offline.destination);
+    source.start(0);
+    const rendered = await offline.startRendering();
+    await ctx.close();
+    return rendered.getChannelData(0);
+  }
+
+  function captionsFromWhisper(chunks, totalDuration) {
+    const out = [];
+    for (const chunk of (chunks || [])) {
+      if (!chunk || !Array.isArray(chunk.timestamp)) continue;
+      let start = Number(chunk.timestamp[0]);
+      let end = Number(chunk.timestamp[1]);
+      const text = cleanCaptionText(chunk.text || "");
+      if (!text || !Number.isFinite(start)) continue;
+      if (!Number.isFinite(end) || end <= start) end = Math.min(totalDuration, start + 2.5);
+      start = Math.max(0, start);
+      end = Math.min(totalDuration, Math.max(start + 0.15, end));
+      out.push({ text, start:Number(start.toFixed(3)), end:Number(end.toFixed(3)) });
+    }
+    return out.filter(c => c.end > c.start).sort((a,b)=>a.start-b.start);
+  }
+
+  async function autoTranscribe() {
+    const file = MediaEngine.state.audio?.file;
+    if (!file) {
+      toast("Adicione a narração primeiro.");
+      return;
+    }
+    autoTranscribeBtn.disabled = true;
+    transcribeInfo.textContent = "Preparando o áudio para o Whisper...";
+    try {
+      const audio = await decodeMono16k(file);
+      const transcriber = await getWhisperPipeline();
+      transcribeInfo.textContent = "Transcrevendo... isso pode levar algum tempo em computadores mais lentos.";
+      const result = await transcriber(audio, {
+        return_timestamps: true,
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        language: "portuguese",
+        task: "transcribe"
+      });
+      const text = cleanCaptionText(result?.text || "");
+      transcriptInput.value = text;
+      const whisperCaps = captionsFromWhisper(result?.chunks, duration);
+      if (whisperCaps.length) {
+        captions = whisperCaps;
+        captionsEnabled.checked = true;
+        captionInfo.textContent = `${captions.length} legenda(s) gerada(s) pelo Whisper com timestamps reais`;
+        renderCaption(elapsed);
+        toast("Transcrição automática concluída e legendas sincronizadas");
+      } else if (text) {
+        captionsEnabled.checked = true;
+        buildCaptionsFromTranscript();
+        renderCaption(elapsed);
+        toast("Transcrição concluída; sincronização aproximada aplicada");
+      } else {
+        throw new Error("O Whisper não retornou texto.");
+      }
+      transcribeInfo.textContent = "Pronto. A transcrição e os timestamps foram gerados no navegador.";
+    } catch (e) {
+      console.error("V5.4 Whisper", e);
+      transcribeInfo.textContent = "Não foi possível transcrever automaticamente. Verifique a conexão para carregar o modelo e tente novamente.";
+      toast("Falha na transcrição automática");
+    } finally {
+      autoTranscribeBtn.disabled = false;
+    }
+  }
+
+  function currentCaption(time) {
+    return captions.find(c => time >= c.start && time < c.end) || null;
+  }
+
+  function renderCaption(time) {
+    const old = preview.querySelector(".caption-overlay");
+    if (old) old.remove();
+    if (!captionsEnabled.checked) return;
+    const cap = currentCaption(time);
+    if (!cap) return;
+    const wrap = document.createElement("div");
+    wrap.className = `caption-overlay ${captionStyle.value || "clean"}`;
+    const text = document.createElement("div");
+    text.className = "caption-text";
+    text.textContent = cap.text;
+    wrap.appendChild(text);
+    preview.appendChild(wrap);
   }
 
   function showScene(index) {
     if (!scenes.length || index < 0 || index >= scenes.length) return;
-    stopMotion();
-    currentSceneIndex=index;
-    const scene=scenes[index];
-    preview.innerHTML="";
-    mediaElement=null;
+    const scene = scenes[index];
+    preview.innerHTML = "";
 
-    if(scene.mediaType==="image"){
-      const img=document.createElement("img");
-      img.src=scene.mediaUrl;
-      img.alt=scene.name;
-      img.style.width="100%";
-      img.style.height="100%";
-      img.style.objectFit="cover";
-      img.style.willChange="transform";
+    preview.classList.remove("effect-zoom-in", "effect-zoom-out", "effect-crossfade", "effect-pan-left", "effect-pan-right", "effect-pan-up", "effect-pan-down", "effect-zoom-pan", "effect-cut");
+    preview.classList.add(`effect-${scene.breakType}`);
+    preview.style.setProperty("--scene-duration", `${Math.max(2, scene.duration)}s`);
+
+    if (scene.mediaType === "image") {
+      const img = document.createElement("img");
+      img.src = scene.mediaUrl;
+      img.alt = scene.name;
+      img.className = "scene-media animated-media";
       preview.appendChild(img);
-      mediaElement=img;
-      applyMotion((elapsed-scene.start)/scene.duration);
-    }else{
-      const video=document.createElement("video");
-      video.src=scene.mediaUrl;
-      video.muted=true;
-      video.autoplay=true;
-      video.loop=true;
-      video.playsInline=true;
-      video.style.width="100%";
-      video.style.height="100%";
-      video.style.objectFit="cover";
+    } else {
+      const video = document.createElement("video");
+      video.src = scene.mediaUrl;
+      video.muted = true;
+      video.autoplay = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.className = "scene-media animated-media";
       preview.appendChild(video);
-      mediaElement=video;
+      video.play().catch(() => {});
     }
 
-    const move=scene.mediaType==="image" ? getMotionPlan(index).name : "vídeo";
-    previewStatus.textContent=`${scene.name} • ${scene.breakType} • ${scene.duration.toFixed(1)}s • movimento: ${move}`;
-    if(playing) startMotion();
+    previewStatus.textContent = `${scene.name} • ${scene.breakType} • ${scene.duration.toFixed(1)}s`;
+    renderCaption(elapsed);
   }
 
   function findSceneAt(time) {
     return scenes.findIndex(s => time >= s.start && time < s.end);
   }
 
+  function syncAudio() {
+    if (narrationPlayer) {
+      const target = Math.min(elapsed, Number.isFinite(narrationPlayer.duration) ? narrationPlayer.duration : elapsed);
+      if (Math.abs(narrationPlayer.currentTime - target) > 0.35) narrationPlayer.currentTime = target;
+    }
+    if (musicPlayer && Number.isFinite(musicPlayer.duration) && musicPlayer.duration > 0) {
+      const target = elapsed % musicPlayer.duration;
+      if (Math.abs(musicPlayer.currentTime - target) > 0.5) musicPlayer.currentTime = target;
+    }
+  }
+
   function tick() {
     if (!playing || !scenes.length) return;
     elapsed = Math.min(duration, elapsed + 0.1);
+    syncAudio();
 
     if (elapsed >= duration) {
       elapsed = duration;
@@ -278,8 +497,8 @@
     if (idx !== currentSceneIndex) {
       currentSceneIndex = idx;
       showScene(idx);
-    } else if (mediaElement && scenes[idx]?.mediaType === "image") {
-      applyMotion((elapsed - scenes[idx].start) / scenes[idx].duration);
+    } else {
+      renderCaption(elapsed);
     }
 
     seekBar.value = duration ? (elapsed / duration) * 100 : 0;
@@ -293,15 +512,18 @@
     }
     playing = true;
     $("playBtn").textContent = "⏸";
+    syncAudio();
+    if (narrationPlayer) narrationPlayer.play().catch(() => {});
+    if (musicPlayer) musicPlayer.play().catch(() => {});
     clearInterval(timer);
     timer = setInterval(tick, 100);
-    startMotion();
   }
 
   function pause() {
     playing = false;
     clearInterval(timer);
-    stopMotion();
+    if (narrationPlayer) narrationPlayer.pause();
+    if (musicPlayer) musicPlayer.pause();
     $("playBtn").textContent = "▶";
   }
 
@@ -311,6 +533,8 @@
     currentSceneIndex = 0;
     seekBar.value = 0;
     currentTime.textContent = "00:00";
+    if (narrationPlayer) narrationPlayer.currentTime = 0;
+    if (musicPlayer) musicPlayer.currentTime = 0;
     if (scenes.length) showScene(0);
   }
 
@@ -318,6 +542,7 @@
     elapsed = (Number(value) / 100) * duration;
     currentSceneIndex = Math.max(0, findSceneAt(elapsed));
     currentTime.textContent = fmt(elapsed);
+    syncAudio();
     if (scenes.length) showScene(currentSceneIndex);
   }
 
@@ -344,7 +569,8 @@
       maxChange: max,
       mode: changeMode.value,
       avoidRepeat: avoidRepeat.checked,
-      patternBreak: patternBreak.checked
+      patternBreak: patternBreak.checked,
+      narrationPauses: window.av5NarrationPauses || []
     });
 
     if (!scenes.length) {
@@ -357,6 +583,9 @@
     elapsed = 0;
     renderTimeline();
     showScene(0);
+    if (captionsEnabled.checked) buildCaptionsFromTranscript();
+    else { captions = []; captionInfo.textContent = "Legendas desligadas"; }
+    renderCaption(0);
 
     const actualMin = Math.min(...scenes.map(s => s.duration));
     const actualMax = Math.max(...scenes.map(s => s.duration));
@@ -366,13 +595,19 @@
   function saveProject() {
     const project = {
       app: "AUTO VIDEO AI V5",
-      version: "V5.0",
+      version: "V5.4",
       format: formatSelect.value,
       duration,
       patternBreak: patternBreak.checked,
       changeInterval: {
         min: Number(minChange.value),
         max: Number(maxChange.value)
+      },
+      captions: {
+        enabled: captionsEnabled.checked,
+        style: captionStyle.value,
+        transcript: transcriptInput.value,
+        items: captions
       },
       scenes: scenes.map(s => ({
         mediaId: s.mediaId,
@@ -402,6 +637,22 @@
   formatSelect.addEventListener("change", updateFormat);
   autoEditBtn.addEventListener("click", autoEdit);
   saveProjectBtn.addEventListener("click", saveProject);
+  autoTranscribeBtn.addEventListener("click", autoTranscribe);
+  generateCaptionsBtn.addEventListener("click", () => {
+    if (!scenes.length) { toast("Faça a montagem automática primeiro."); return; }
+    captionsEnabled.checked = true;
+    if (buildCaptionsFromTranscript()) { renderCaption(elapsed); toast("Legendas geradas e sincronizadas"); }
+  });
+  captionsEnabled.addEventListener("change", () => {
+    if (captionsEnabled.checked && scenes.length && transcriptInput.value.trim()) buildCaptionsFromTranscript();
+    else if (!captionsEnabled.checked) { captions = []; captionInfo.textContent = "Legendas desligadas"; }
+    renderCaption(elapsed);
+  });
+  captionStyle.addEventListener("change", () => renderCaption(elapsed));
+  transcriptInput.addEventListener("input", () => {
+    if (captionsEnabled.checked && scenes.length && transcriptInput.value.trim()) buildCaptionsFromTranscript();
+    renderCaption(elapsed);
+  });
   $("playBtn").addEventListener("click", play);
   $("pauseBtn").addEventListener("click", pause);
   $("stopBtn").addEventListener("click", stop);
