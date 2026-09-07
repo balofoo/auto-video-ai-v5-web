@@ -8,6 +8,7 @@
   const musicInput = $("musicInput");
   const autoEditBtn = $("autoEditBtn");
   const saveProjectBtn = $("saveProjectBtn");
+  const downloadVideoBtn = $("downloadVideoBtn");
   const preview = $("preview");
   const formatSelect = $("formatSelect");
   const minChange = $("minChange");
@@ -38,7 +39,6 @@
   let narrationPlayer = null;
   let musicPlayer = null;
   let captions = [];
-  let motionFrame = null;
 
   function toast(msg) {
     const el = $("toast");
@@ -436,93 +436,35 @@
     preview.appendChild(wrap);
   }
 
-  // V5.5: câmera 2.5D real no preview. Áudio, música e legendas permanecem V5.4.
-  function motionPlan(index) {
-    const plans = [
-      {name:"zoom-in", a:[0,0,1.00,0], b:[0,-1,1.12,0]},
-      {name:"pan-right", a:[-4,0,1.08,0], b:[4,0,1.08,0]},
-      {name:"zoom-out", a:[2,1,1.12,0], b:[-1,0,1.00,0]},
-      {name:"pan-left", a:[4,0,1.08,0], b:[-4,0,1.08,0]},
-      {name:"pan-down", a:[0,-4,1.08,0], b:[0,4,1.08,0]},
-      {name:"pan-up", a:[0,4,1.08,0], b:[0,-4,1.08,0]},
-      {name:"diagonal", a:[-3,3,1.03,-0.6], b:[3,-3,1.12,0.6]},
-      {name:"diagonal-reverse", a:[3,-3,1.12,0.6], b:[-3,3,1.03,-0.6]}
-    ];
-    return plans[index % plans.length];
-  }
-
-  function applyImageMotion(progress) {
-    const scene = scenes[currentSceneIndex];
-    const img = preview.querySelector("img.scene-media");
-    if (!scene || scene.mediaType !== "image" || !img) return;
-    const m = motionPlan(currentSceneIndex);
-    const p = Math.max(0, Math.min(1, Number(progress) || 0));
-    const e = p < 0.5 ? 4*p*p*p : 1 - Math.pow(-2*p + 2, 3)/2;
-    const x = m.a[0] + (m.b[0]-m.a[0])*e;
-    const y = m.a[1] + (m.b[1]-m.a[1])*e;
-    const s = m.a[2] + (m.b[2]-m.a[2])*e;
-    const r = m.a[3] + (m.b[3]-m.a[3])*e;
-    img.style.transform = `translate3d(${x}%,${y}%,0) scale(${s}) rotate(${r}deg)`;
-    img.style.transformOrigin = "50% 50%";
-    img.style.willChange = "transform";
-  }
-
-  function stopImageMotion() {
-    if (motionFrame) cancelAnimationFrame(motionFrame);
-    motionFrame = null;
-  }
-
-  function startImageMotion() {
-    stopImageMotion();
-    const loop = () => {
-      if (!playing) return;
-      const scene = scenes[currentSceneIndex];
-      if (scene && scene.mediaType === "image") {
-        applyImageMotion((elapsed-scene.start)/Math.max(0.001,scene.duration));
-      }
-      motionFrame = requestAnimationFrame(loop);
-    };
-    if (scenes[currentSceneIndex]?.mediaType === "image") motionFrame=requestAnimationFrame(loop);
-  }
-
   function showScene(index) {
     if (!scenes.length || index < 0 || index >= scenes.length) return;
-    stopImageMotion();
     const scene = scenes[index];
     preview.innerHTML = "";
-    preview.classList.remove("effect-zoom-in","effect-zoom-out","effect-crossfade","effect-pan-left","effect-pan-right","effect-pan-up","effect-pan-down","effect-zoom-pan","effect-cut");
+
+    preview.classList.remove("effect-zoom-in", "effect-zoom-out", "effect-crossfade", "effect-pan-left", "effect-pan-right", "effect-pan-up", "effect-pan-down", "effect-zoom-pan", "effect-cut");
+    preview.classList.add(`effect-${scene.breakType}`);
     preview.style.setProperty("--scene-duration", `${Math.max(2, scene.duration)}s`);
 
     if (scene.mediaType === "image") {
-      // Imagem: movimento é aplicado por JavaScript frame a frame, sem depender das animações CSS.
-      const img=document.createElement("img");
-      img.src=scene.mediaUrl;
-      img.alt=scene.name;
-      img.className="scene-media";
-      img.style.width="100%";
-      img.style.height="100%";
-      img.style.objectFit="cover";
-      img.style.willChange="transform";
-      img.style.transformOrigin="50% 50%";
+      const img = document.createElement("img");
+      img.src = scene.mediaUrl;
+      img.alt = scene.name;
+      img.className = "scene-media animated-media";
       preview.appendChild(img);
-      applyImageMotion((elapsed-scene.start)/Math.max(0.001,scene.duration));
     } else {
-      preview.classList.add(`effect-${scene.breakType}`);
-      const video=document.createElement("video");
-      video.src=scene.mediaUrl;
-      video.muted=true;
-      video.autoplay=true;
-      video.loop=true;
-      video.playsInline=true;
-      video.className="scene-media animated-media";
+      const video = document.createElement("video");
+      video.src = scene.mediaUrl;
+      video.muted = true;
+      video.autoplay = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.className = "scene-media animated-media";
       preview.appendChild(video);
-      video.play().catch(()=>{});
+      video.play().catch(() => {});
     }
 
-    const move=scene.mediaType === "image" ? motionPlan(index).name : scene.breakType;
-    previewStatus.textContent=`${scene.name} • ${scene.breakType} • ${scene.duration.toFixed(1)}s • movimento: ${move}`;
+    previewStatus.textContent = `${scene.name} • ${scene.breakType} • ${scene.duration.toFixed(1)}s`;
     renderCaption(elapsed);
-    if (playing) startImageMotion();
   }
 
   function findSceneAt(time) {
@@ -558,7 +500,6 @@
       showScene(idx);
     } else {
       renderCaption(elapsed);
-      if (scenes[idx]?.mediaType === "image") applyImageMotion((elapsed-scenes[idx].start)/Math.max(0.001,scenes[idx].duration));
     }
 
     seekBar.value = duration ? (elapsed / duration) * 100 : 0;
@@ -577,13 +518,11 @@
     if (musicPlayer) musicPlayer.play().catch(() => {});
     clearInterval(timer);
     timer = setInterval(tick, 100);
-    startImageMotion();
   }
 
   function pause() {
     playing = false;
     clearInterval(timer);
-    stopImageMotion();
     if (narrationPlayer) narrationPlayer.pause();
     if (musicPlayer) musicPlayer.pause();
     $("playBtn").textContent = "▶";
@@ -654,6 +593,153 @@
     toast(`Montagem criada: ${scenes.length} cenas, mudanças reais de ${actualMin.toFixed(1)}s a ${actualMax.toFixed(1)}s.`);
   }
 
+  function makeExportOverlay(text) {
+    const el = document.createElement("div");
+    el.className = "export-progress";
+    el.innerHTML = `<strong>🎬 Gerando vídeo...</strong><span>${text}</span>`;
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function exportCanvasFrame(ctx, canvas, scene, timeInScene) {
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#05070b";
+    ctx.fillRect(0, 0, w, h);
+
+    const media = scene.__exportMedia;
+    if (!media) return;
+
+    const progress = scene.duration ? Math.max(0, Math.min(1, timeInScene / scene.duration)) : 0;
+    const eased = progress < .5 ? 4*progress*progress*progress : 1-Math.pow(-2*progress+2,3)/2;
+    const plans = [
+      {x0:0,y0:0,s0:1,x1:2,y1:-1,s1:1.13,r0:0,r1:.10},
+      {x0:-5,y0:0,s0:1.08,x1:5,y1:0,s1:1.08,r0:0,r1:0},
+      {x0:3,y0:1,s0:1.13,x1:-1,y1:0,s1:1,r0:.08,r1:0},
+      {x0:5,y0:0,s0:1.08,x1:-5,y1:0,s1:1.08,r0:0,r1:0},
+      {x0:-3,y0:3,s0:1.03,x1:3,y1:-3,s1:1.12,r0:-.08,r1:.08},
+      {x0:3,y0:-2,s0:1.12,x1:-3,y1:2,s1:1.02,r0:.08,r1:-.08},
+      {x0:0,y0:-4,s0:1.08,x1:0,y1:4,s1:1.08,r0:0,r1:0},
+      {x0:0,y0:4,s0:1.08,x1:0,y1:-4,s1:1.08,r0:0,r1:0}
+    ];
+    const m = plans[scene.__index % plans.length];
+    const x = m.x0 + (m.x1-m.x0)*eased;
+    const y = m.y0 + (m.y1-m.y0)*eased;
+    const scale = m.s0 + (m.s1-m.s0)*eased;
+    const rot = m.r0 + (m.r1-m.r0)*eased;
+
+    const vw = media.videoWidth || media.naturalWidth || media.width;
+    const vh = media.videoHeight || media.naturalHeight || media.height;
+    if (!vw || !vh) return;
+    const cover = Math.max(w/vw, h/vh) * scale;
+    const dw = vw*cover, dh = vh*cover;
+    const dx = (w-dw)/2 + (x/100)*w;
+    const dy = (h-dh)/2 + (y/100)*h;
+
+    ctx.save();
+    ctx.translate(w/2,h/2);
+    ctx.rotate(rot*Math.PI/180);
+    ctx.translate(-w/2,-h/2);
+    ctx.drawImage(media, dx, dy, dw, dh);
+    ctx.restore();
+
+    const cap = captionsEnabled.checked ? currentCaption(scene.start + timeInScene) : null;
+    if (cap) {
+      const fontSize = Math.max(24, Math.round(h * (captionStyle.value === "bold" ? .045 : .035)));
+      ctx.font = `800 ${fontSize}px Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const maxWidth = w * .84;
+      const words = cap.text.split(/\s+/);
+      const lines=[]; let line="";
+      for (const word of words) {
+        const test = line ? line+" "+word : word;
+        if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line=word; } else line=test;
+      }
+      if (line) lines.push(line);
+      const lineH=fontSize*1.18, boxH=lines.length*lineH+18, y0=h-h*.11-boxH/2;
+      if (captionStyle.value === "box") { ctx.fillStyle="rgba(0,0,0,.68)"; ctx.roundRect(w*.08,y0-boxH/2,w*.84,boxH,12); ctx.fill(); }
+      ctx.fillStyle="#fff"; ctx.shadowColor="rgba(0,0,0,.95)"; ctx.shadowBlur=8;
+      lines.forEach((ln,i)=>ctx.fillText(ln,w/2,y0+i*lineH));
+      ctx.shadowBlur=0;
+    }
+  }
+
+  async function downloadVideo() {
+    if (!scenes.length) { toast("Faça a montagem automática primeiro."); return; }
+    if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+      toast("Seu navegador não suporta exportação de vídeo neste formato.");
+      return;
+    }
+    downloadVideoBtn.disabled = true;
+    const overlay = makeExportOverlay("Preparando mídia...");
+    try {
+      const canvas=document.createElement("canvas");
+      const ratio=formatSelect.value;
+      if (ratio === "9:16") { canvas.width=720; canvas.height=1280; }
+      else if (ratio === "1:1") { canvas.width=1080; canvas.height=1080; }
+      else { canvas.width=1280; canvas.height=720; }
+      const ctx=canvas.getContext("2d");
+      const stream=canvas.captureStream(30);
+      const AC=window.AudioContext||window.webkitAudioContext;
+      const ac=new AC();
+      const destination=ac.createMediaStreamDestination();
+      const audioEls=[];
+      const connectAudio=async(file,volume,loop=false)=>{
+        if(!file) return null;
+        const el=new Audio(URL.createObjectURL(file));
+        el.preload="auto"; el.loop=loop; el.volume=volume;
+        const src=ac.createMediaElementSource(el); const gain=ac.createGain(); gain.gain.value=volume;
+        src.connect(gain).connect(destination); audioEls.push(el); return el;
+      };
+      const narration=await connectAudio(MediaEngine.state.audio?.file,1,false);
+      const music=await connectAudio(MediaEngine.state.music?.file,.22,true);
+      const tracks=destination.stream.getAudioTracks();
+      tracks.forEach(t=>stream.addTrack(t));
+
+      overlay.querySelector("span").textContent="Carregando imagens e vídeos...";
+      for(let i=0;i<scenes.length;i++){
+        const scene=scenes[i]; scene.__index=i;
+        const media=scene.mediaType==='image' ? new Image() : document.createElement('video');
+        if(scene.mediaType==='video'){ media.muted=true; media.playsInline=true; media.preload='auto'; }
+        media.src=scene.mediaUrl;
+        await new Promise((resolve,reject)=>{ media.onload=resolve; media.onloadeddata=resolve; media.onerror=reject; });
+        scene.__exportMedia=media;
+      }
+
+      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
+      const recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:7000000});
+      const chunks=[];
+      recorder.ondataavailable=e=>{if(e.data.size) chunks.push(e.data)};
+      const stopped=new Promise(resolve=>recorder.onstop=resolve);
+      recorder.start(200);
+      await ac.resume();
+      if(narration){ narration.currentTime=0; await narration.play().catch(()=>{}); }
+      if(music){ music.currentTime=0; await music.play().catch(()=>{}); }
+
+      const fps=30, startTime=performance.now();
+      let frame=0;
+      for(let t=0;t<duration;t+=1/fps){
+        const idx=Math.max(0,Math.min(scenes.length-1,findSceneAt(t)));
+        const scene=scenes[idx];
+        exportCanvasFrame(ctx,canvas,scene,t-scene.start);
+        elapsed=t; currentSceneIndex=idx;
+        seekBar.value=duration?(t/duration)*100:0; currentTime.textContent=fmt(t);
+        if(frame++%15===0) overlay.querySelector("span").textContent=`Renderizando ${Math.round((t/duration)*100)}%`;
+        await new Promise(r=>setTimeout(r,1000/fps));
+      }
+      recorder.stop(); await stopped;
+      audioEls.forEach(e=>{e.pause(); URL.revokeObjectURL(e.src)}); await ac.close();
+      const blob=new Blob(chunks,{type:mime});
+      const url=URL.createObjectURL(blob); const a=document.createElement('a');
+      a.href=url; a.download=`auto-video-ai-v5-${Date.now()}.webm`; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),5000);
+      overlay.remove(); toast("Vídeo exportado e pronto para baixar");
+    } catch(e) {
+      console.error(e); overlay.remove(); toast("Não foi possível exportar o vídeo. Tente novamente.");
+    } finally { downloadVideoBtn.disabled=false; }
+  }
+
   function saveProject() {
     const project = {
       app: "AUTO VIDEO AI V5",
@@ -699,6 +785,7 @@
   formatSelect.addEventListener("change", updateFormat);
   autoEditBtn.addEventListener("click", autoEdit);
   saveProjectBtn.addEventListener("click", saveProject);
+  downloadVideoBtn.addEventListener("click", downloadVideo);
   autoTranscribeBtn.addEventListener("click", autoTranscribe);
   generateCaptionsBtn.addEventListener("click", () => {
     if (!scenes.length) { toast("Faça a montagem automática primeiro."); return; }

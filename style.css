@@ -258,3 +258,10 @@ textarea { width:100%; box-sizing:border-box; resize:vertical; background:#0c121
 .caption-actions { display:grid; grid-template-columns:1fr; gap:6px; margin-top:4px; }
 .captions-panel .secondary { opacity:.92; }
 #transcribeInfo { font-size:10px; line-height:1.4; color:var(--muted); }
+
+button.download { background: #18351f; border-color: #2f6b3d; }
+button.download:hover { border-color: #41d38a; }
+button:disabled { opacity: .55; cursor: wait; }
+.export-progress { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 100; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.45); min-width: 280px; text-align:center; }
+.export-progress strong { display:block; margin-bottom:8px; }
+.export-progress span { color: var(--muted); font-size:12px; }
